@@ -2,9 +2,15 @@
 name = "async-drop"
 version = "0.1.0"
 edition = "2024"
+authors = ["fpena2 <fpena2@unh.newhaven.edu>"]
+repository = "https://github.com/fpena2/async-drop"
+description = "simple async drop"
+readme = "README.md"
+keywords = ["drop", "async"]
+categories = ["asynchronous"]
+license = "MIT"
 
 [dependencies]
-
 # Async 
 futures = "0.3.32"
 tokio = { version = "1.47.1", features = [
