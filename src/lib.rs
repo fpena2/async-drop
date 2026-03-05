@@ -9,45 +9,36 @@ pub trait AsyncDrop {
     }
 }
 
-#[derive(Default)]
 pub struct Dropper<T>
 where
-    T: AsyncDrop + Default + Send + Sync + 'static,
+    T: AsyncDrop + Send + Sync + 'static,
 {
-    dropped: bool,
-    inner: T,
+    inner: Option<T>,
 }
 
 impl<T> Dropper<T>
 where
-    T: AsyncDrop + Default + Send + Sync + 'static,
+    T: AsyncDrop + Send + Sync + 'static,
 {
     pub fn new(inner: T) -> Self {
-        Self {
-            dropped: false,
-            inner,
-        }
+        Self { inner: Some(inner) }
     }
 }
 
 impl<T> Drop for Dropper<T>
 where
-    T: AsyncDrop + Default + Send + Sync + 'static,
+    T: AsyncDrop + Send + Sync + 'static,
 {
     fn drop(&mut self) {
-        if self.dropped {
+        let Some(mut inner) = self.inner.take() else {
             return;
-        }
-
-        let mut this = Dropper::default();
-        std::mem::swap(&mut this, self);
-        this.dropped = true;
+        };
 
         let (done_trigger, done_signal) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                futures::executor::block_on(this.inner.async_drop())
+                futures::executor::block_on(inner.async_drop())
             }));
 
             let flattened = match result {
@@ -73,19 +64,23 @@ where
 
 impl<T> Deref for Dropper<T>
 where
-    T: AsyncDrop + Default + Send + Sync + 'static,
+    T: AsyncDrop + Send + Sync + 'static,
 {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.inner
+            .as_ref()
+            .expect("Dropper value has already been dropped")
     }
 }
 
 impl<T> DerefMut for Dropper<T>
 where
-    T: AsyncDrop + Default + Send + Sync + 'static,
+    T: AsyncDrop + Send + Sync + 'static,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
+        self.inner
+            .as_mut()
+            .expect("Dropper value has already been dropped")
     }
 }

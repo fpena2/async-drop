@@ -1,7 +1,6 @@
 use async_drop::{AsyncDrop, AsyncDropFuture, Dropper};
 use std::time::Duration;
 
-#[derive(Debug, Default)]
 struct AsyncThing(String);
 
 impl AsyncDrop for AsyncThing {

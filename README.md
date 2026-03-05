@@ -5,8 +5,9 @@ Inspired by [async-dropper](https://github.com/t3hmrman/async-dropper)
 ## Adjustments
 
 - Removed `async_trait` crate dependency
+- Types don't have to implement `Default`
 - Dropper's drop will wait until `async_drop` completes
-- Only compatible with the `tokio` runtime
+- Only compatible with the `tokio` runtime (for now)
 
 ## Usage
 

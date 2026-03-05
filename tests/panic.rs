@@ -1,6 +1,5 @@
 use async_drop::{AsyncDrop, AsyncDropFuture, Dropper};
 
-#[derive(Debug, Default)]
 struct AsyncThing;
 
 impl AsyncDrop for AsyncThing {
