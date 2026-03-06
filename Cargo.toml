@@ -11,8 +11,7 @@ categories = ["asynchronous"]
 license = "MIT"
 
 [dependencies]
-# Async 
-futures = "0.3.32"
+tokio = { version = "1.47.1", features = ["rt"] }
 
 [dev-dependencies]
 tokio = { version = "1.47.1", features = [

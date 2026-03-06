@@ -7,7 +7,7 @@ pub trait AsyncDrop {
 
 pub struct Dropper<T>
 where
-    T: AsyncDrop + 'static,
+    T: AsyncDrop + Send + 'static,
 {
     inner: Option<T>,
 }
@@ -23,18 +23,26 @@ where
 
 impl<T> Drop for Dropper<T>
 where
-    T: AsyncDrop + 'static,
+    T: AsyncDrop + Send + 'static,
 {
     fn drop(&mut self) {
         let Some(mut inner) = self.inner.take() else {
             return;
         };
 
-        let async_drop_future = inner.async_drop();
-
-        if let Err(e) = futures::executor::block_on(async_drop_future) {
-            eprintln!("{}", e);
-        }
+        // Spawn a dedicated thread with its own tokio runtime so we don't
+        // deadlock when dropped inside a single-threaded tokio executor.
+        std::thread::scope(|s| {
+            s.spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("failed to build async-drop runtime");
+                if let Err(e) = rt.block_on(inner.async_drop()) {
+                    eprintln!("{}", e);
+                }
+            });
+        });
     }
 }
 
