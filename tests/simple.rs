@@ -1,16 +1,18 @@
-use async_drop::{AsyncDrop, Dropper};
+use async_drop::{AsyncDrop, AsyncDropFuture, Dropper};
 use std::time::Duration;
 
 struct AsyncThing(String);
 
 impl AsyncDrop for AsyncThing {
-    async fn async_drop(&mut self) -> Result<(), String> {
-        println!("async dropping [{}]!", self.0);
-        println!("sleeping for 2 seconds");
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        println!("done sleeping");
-        println!("async dropped [{}]!", self.0);
-        Ok(())
+    fn async_drop(&mut self) -> AsyncDropFuture<'_> {
+        Box::pin(async {
+            println!("async dropping [{}]!", self.0);
+            println!("sleeping for 2 seconds");
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            println!("done sleeping");
+            println!("async dropped [{}]!", self.0);
+            Ok(())
+        })
     }
 }
 

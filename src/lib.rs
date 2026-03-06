@@ -1,7 +1,12 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    ops::{Deref, DerefMut},
+    pin::Pin,
+};
+
+pub type AsyncDropFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
 
 pub trait AsyncDrop {
-    fn async_drop(&mut self) -> impl Future<Output = Result<(), String>> + Send;
+    fn async_drop(&mut self) -> AsyncDropFuture<'_>;
 }
 
 pub struct Dropper<T>

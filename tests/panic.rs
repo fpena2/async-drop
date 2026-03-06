@@ -1,10 +1,12 @@
-use async_drop::{AsyncDrop, Dropper};
+use async_drop::{AsyncDrop, AsyncDropFuture, Dropper};
 
 struct AsyncThing;
 
 impl AsyncDrop for AsyncThing {
-    async fn async_drop(&mut self) -> Result<(), String> {
-        panic!("Something happened");
+    fn async_drop(&mut self) -> AsyncDropFuture<'_> {
+        Box::pin(async {
+            panic!("Something happened");
+        })
     }
 }
 
