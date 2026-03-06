@@ -1,20 +1,19 @@
 use std::ops::{Deref, DerefMut};
 
 pub trait AsyncDrop {
-    #[allow(async_fn_in_trait)]
-    async fn async_drop(&mut self) -> Result<(), String>;
+    fn async_drop(&mut self) -> impl Future<Output = Result<(), String>> + Send;
 }
 
 pub struct Dropper<T>
 where
-    T: AsyncDrop + Send + 'static,
+    T: AsyncDrop,
 {
     inner: Option<T>,
 }
 
 impl<T> Dropper<T>
 where
-    T: AsyncDrop + Send + Sync + 'static,
+    T: AsyncDrop,
 {
     pub fn new(inner: T) -> Self {
         Self { inner: Some(inner) }
@@ -23,12 +22,14 @@ where
 
 impl<T> Drop for Dropper<T>
 where
-    T: AsyncDrop + Send + 'static,
+    T: AsyncDrop,
 {
     fn drop(&mut self) {
         let Some(mut inner) = self.inner.take() else {
             return;
         };
+
+        let future = inner.async_drop();
 
         // Spawn a dedicated thread with its own tokio runtime so we don't
         // deadlock when dropped inside a single-threaded tokio executor.
@@ -38,7 +39,7 @@ where
                     .enable_all()
                     .build()
                     .expect("failed to build async-drop runtime");
-                if let Err(e) = rt.block_on(inner.async_drop()) {
+                if let Err(e) = rt.block_on(future) {
                     eprintln!("{}", e);
                 }
             });
@@ -48,7 +49,7 @@ where
 
 impl<T> Deref for Dropper<T>
 where
-    T: AsyncDrop + Send + Sync + 'static,
+    T: AsyncDrop + 'static,
 {
     type Target = T;
     fn deref(&self) -> &Self::Target {
