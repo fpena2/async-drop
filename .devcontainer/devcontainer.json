@@ -1,0 +1,4 @@
+{
+    "name": "STRATA (Rust)",
+    "image": "mcr.microsoft.com/devcontainers/rust:latest"
+}

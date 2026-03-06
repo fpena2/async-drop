@@ -1,16 +1,15 @@
-use async_drop::{AsyncDrop, AsyncDropFuture, Dropper};
+use async_drop::{AsyncDrop, Dropper};
 
 struct AsyncThing;
 
 impl AsyncDrop for AsyncThing {
-    fn async_drop(&mut self) -> AsyncDropFuture<'_> {
-        Box::pin(async {
-            panic!("Something happened");
-        })
+    async fn async_drop(&mut self) -> Result<(), String> {
+        panic!("Something happened");
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
+#[should_panic]
 async fn dropper_calls_async_drop_which_panics() {
     {
         let thing = AsyncThing;

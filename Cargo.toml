@@ -13,6 +13,8 @@ license = "MIT"
 [dependencies]
 # Async 
 futures = "0.3.32"
+
+[dev-dependencies]
 tokio = { version = "1.47.1", features = [
     "macros",
     "sync",
