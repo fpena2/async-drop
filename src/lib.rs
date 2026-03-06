@@ -89,17 +89,31 @@ where
 
         // Spawn a dedicated thread with its own tokio runtime so we don't
         // deadlock when dropped inside a single-threaded tokio executor.
-        std::thread::scope(|s| {
+        // Use catch_unwind to handle panics in the async drop and propagate
+        // them to the parent thread.
+        let result = std::thread::scope(|s| {
             s.spawn(move || {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                     .expect("failed to build async-drop runtime");
-                if let Err(e) = rt.block_on(future) {
-                    eprintln!("{}", e);
+
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    rt.block_on(future)
+                }));
+
+                match result {
+                    Ok(inner) => inner.map_err(|e| format!("Async drop error: {}", e)),
+                    Err(_) => Err("async_drop panicked".to_owned()),
                 }
-            });
+            })
+            .join()
+            .unwrap_or_else(|_| Err("async_drop thread panicked".to_owned()))
         });
+
+        if let Err(e) = result {
+            panic!("{}", e);
+        }
     }
 }
 
