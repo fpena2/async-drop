@@ -66,7 +66,7 @@ where
 
 impl<T> DerefMut for Dropper<T>
 where
-    T: AsyncDrop + Send + Sync + 'static,
+    T: AsyncDrop + 'static,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.inner
