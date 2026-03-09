@@ -1,25 +1,76 @@
-use std::ops::{Deref, DerefMut};
+//! Async drop support for Rust.
+//!
+//! This crate provides [`AsyncDrop`], a trait for types that need to perform
+//! asynchronous cleanup, and [`Dropper`], a wrapper that automatically runs
+//! the async cleanup when the value is dropped.
+//!
+//! # Example
+//!
+//! ```
+//! use async_drop::{AsyncDrop, AsyncDropFuture, Dropper};
+//!
+//! struct DbConnection;
+//!
+//! impl AsyncDrop for DbConnection {
+//!     fn async_drop(&mut self) -> AsyncDropFuture<'_> {
+//!         Box::pin(async {
+//!             // Close the connection gracefully...
+//!             Ok(())
+//!         })
+//!     }
+//! }
+//!
+//! let conn = Dropper::new(DbConnection);
+//! // Use `conn` as if it were a `DbConnection` (via Deref).
+//! // When `conn` goes out of scope, `async_drop` runs automatically.
+//! ```
 
-pub type AsyncDropFuture<'a> =
-    std::pin::Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+use std::{
+    ops::{Deref, DerefMut},
+    pin::Pin,
+};
 
+/// The future type returned by [`AsyncDrop::async_drop`].
+pub type AsyncDropFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+
+/// A trait for types that require asynchronous cleanup.
+///
+/// Implement this trait to define async teardown logic (e.g. flushing buffers,
+/// closing network connections, or releasing distributed locks). Use
+/// [`Dropper`] to ensure `async_drop` is called automatically when the value
+/// goes out of scope.
 pub trait AsyncDrop {
-    fn async_drop(&mut self) -> AsyncDropFuture<'_> {
-        Box::pin(async { Ok(()) })
-    }
+    /// Performs asynchronous cleanup of this value.
+    ///
+    /// Returns `Ok(())` on success or `Err` with a message that will be
+    /// printed to stderr.
+    fn async_drop(&mut self) -> AsyncDropFuture<'_>;
 }
 
+/// A wrapper that calls [`AsyncDrop::async_drop`] when dropped.
+///
+/// `Dropper<T>` dereferences to `T`, so the wrapped value can be used
+/// transparently. On drop, it spawns a dedicated thread with a short-lived
+/// Tokio runtime to drive the cleanup future to completion. This avoids
+/// deadlocks when the `Dropper` is dropped inside a single-threaded async
+/// executor.
+///
+/// # Panics
+///
+/// Panics if the internal Tokio runtime cannot be created.
 pub struct Dropper<T>
 where
-    T: AsyncDrop + Send + Sync + 'static,
+    T: AsyncDrop,
 {
     inner: Option<T>,
 }
 
 impl<T> Dropper<T>
 where
-    T: AsyncDrop + Send + Sync + 'static,
+    T: AsyncDrop,
 {
+    /// Wraps `inner` so that its [`AsyncDrop::async_drop`] implementation is
+    /// called automatically when this `Dropper` is dropped.
     pub fn new(inner: T) -> Self {
         Self { inner: Some(inner) }
     }
@@ -27,44 +78,48 @@ where
 
 impl<T> Drop for Dropper<T>
 where
-    T: AsyncDrop + Send + Sync + 'static,
+    T: AsyncDrop,
 {
     fn drop(&mut self) {
         let Some(mut inner) = self.inner.take() else {
             return;
         };
 
-        let (done_trigger, done_signal) = tokio::sync::oneshot::channel();
+        let future = inner.async_drop();
 
-        tokio::spawn(async move {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                futures::executor::block_on(inner.async_drop())
-            }));
+        // Spawn a dedicated thread with its own tokio runtime so we don't
+        // deadlock when dropped inside a single-threaded tokio executor.
+        // Use catch_unwind to handle panics in the async drop and propagate
+        // them to the parent thread.
+        let result = std::thread::scope(|s| {
+            s.spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("failed to build async-drop runtime");
 
-            let flattened = match result {
-                Ok(inner) => inner.map_err(|e| format!("Async drop error: {}", e)),
-                Err(_) => Err("Task panicked".to_owned()),
-            };
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    rt.block_on(future)
+                }));
 
-            let _ = done_trigger.send(flattened);
+                match result {
+                    Ok(inner) => inner.map_err(|e| format!("Async drop error: {}", e)),
+                    Err(_) => Err("async_drop panicked".to_owned()),
+                }
+            })
+            .join()
+            .unwrap_or_else(|_| Err("async_drop thread panicked".to_owned()))
         });
 
-        match futures::executor::block_on(done_signal) {
-            Ok(result) => {
-                if let Err(e) = result {
-                    eprintln!("{}", e);
-                }
-            }
-            Err(e) => {
-                eprintln!("{}", e);
-            }
+        if let Err(e) = result {
+            panic!("{}", e);
         }
     }
 }
 
 impl<T> Deref for Dropper<T>
 where
-    T: AsyncDrop + Send + Sync + 'static,
+    T: AsyncDrop + 'static,
 {
     type Target = T;
     fn deref(&self) -> &Self::Target {
@@ -76,7 +131,7 @@ where
 
 impl<T> DerefMut for Dropper<T>
 where
-    T: AsyncDrop + Send + Sync + 'static,
+    T: AsyncDrop + 'static,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.inner

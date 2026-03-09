@@ -11,6 +11,7 @@ impl AsyncDrop for AsyncThing {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[should_panic]
 async fn dropper_calls_async_drop_which_panics() {
     {
         let thing = AsyncThing;
